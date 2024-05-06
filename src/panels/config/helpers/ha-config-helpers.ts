@@ -24,6 +24,7 @@ import {
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
 import { computeCssColor } from "../../../common/color/compute-color";
+import { storage } from "../../../common/decorators/storage";
 import { HASSDomEvent } from "../../../common/dom/fire_event";
 import { computeStateDomain } from "../../../common/entity/compute_state_domain";
 import { navigate } from "../../../common/navigate";
@@ -33,9 +34,14 @@ import {
 } from "../../../common/translations/localize";
 import { extractSearchParam } from "../../../common/url/search-params";
 import {
+  hasRejectedItems,
+  rejectedItems,
+} from "../../../common/util/promise-all-settled-results";
+import {
   DataTableColumnContainer,
   RowClickedEvent,
   SelectionChangedEvent,
+  SortingChangedEvent,
 } from "../../../components/data-table/ha-data-table";
 import "../../../components/data-table/ha-data-table-labels";
 import "../../../components/ha-fab";
@@ -134,6 +140,19 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
   @property({ type: Boolean }) public narrow = false;
 
   @property({ attribute: false }) public route!: Route;
+
+  @storage({ key: "helpers-table-sort", state: false, subscribe: false })
+  private _activeSorting?: SortingChangedEvent;
+
+  @storage({ key: "helpers-table-grouping", state: false, subscribe: false })
+  private _activeGrouping?: string;
+
+  @storage({
+    key: "helpers-table-collapsed",
+    state: false,
+    subscribe: false,
+  })
+  private _activeCollapsed?: string;
 
   @state() private _stateItems: HassEntity[] = [];
 
@@ -290,7 +309,7 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
                   <ha-svg-icon .path=${mdiPencilOff}></ha-svg-icon>
                   <simple-tooltip animation-delay="0" position="left">
                     ${this.hass.localize(
-                      "ui.panel.config.entities.picker.status.readonly"
+                      "ui.panel.config.entities.picker.status.unmanageable"
                     )}
                   </simple-tooltip>
                 </div>
@@ -486,6 +505,16 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
     const labelsInOverflow =
       (this._sizeController.value && this._sizeController.value < 700) ||
       (!this._sizeController.value && this.hass.dockedSidebar === "docked");
+    const helpers = this._getItems(
+      this.hass.localize,
+      this._stateItems,
+      this._entityEntries,
+      this._configEntries,
+      this._entityReg,
+      this._categories,
+      this._labels,
+      this._filteredStateItems
+    );
     return html`
       <hass-tabs-subpage-data-table
         .hass=${this.hass}
@@ -493,25 +522,30 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
         back-path="/config"
         .route=${this.route}
         .tabs=${configSections.devices}
+        .searchLabel=${this.hass.localize(
+          "ui.panel.config.helpers.picker.search",
+          { number: helpers.length }
+        )}
         selectable
         .selected=${this._selected.length}
         @selection-changed=${this._handleSelectionChanged}
         hasFilters
-        .filters=${Object.values(this._filters).filter(
-          (filter) => filter.value?.length
+        .filters=${Object.values(this._filters).filter((filter) =>
+          Array.isArray(filter.value)
+            ? filter.value.length
+            : filter.value &&
+              Object.values(filter.value).some((val) =>
+                Array.isArray(val) ? val.length : val
+              )
         ).length}
         .columns=${this._columns(this.narrow, this.hass.localize)}
-        .data=${this._getItems(
-          this.hass.localize,
-          this._stateItems,
-          this._entityEntries,
-          this._configEntries,
-          this._entityReg,
-          this._categories,
-          this._labels,
-          this._filteredStateItems
-        )}
-        initialGroupColumn="category"
+        .data=${helpers}
+        .initialGroupColumn=${this._activeGrouping || "category"}
+        .initialCollapsedGroups=${this._activeCollapsed}
+        .initialSorting=${this._activeSorting}
+        @sorting-changed=${this._handleSortingChanged}
+        @grouping-changed=${this._handleGroupingChanged}
+        @collapsed-changed=${this._handleCollapseChanged}
         .activeFilters=${this._activeFilters}
         @clear-filter=${this._clearFilter}
         @row-click=${this._openEditDialog}
@@ -791,7 +825,20 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
         })
       );
     });
-    await Promise.all(promises);
+    const result = await Promise.allSettled(promises);
+    if (hasRejectedItems(result)) {
+      const rejected = rejectedItems(result);
+      showAlertDialog(this, {
+        title: this.hass.localize("ui.panel.config.common.multiselect.failed", {
+          number: rejected.length,
+        }),
+        text: html`<pre>
+${rejected
+            .map((r) => r.reason.message || r.reason.code || r.reason)
+            .join("\r\n")}</pre
+        >`,
+      });
+    }
   }
 
   private async _handleBulkLabel(ev) {
@@ -814,7 +861,20 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
         })
       );
     });
-    await Promise.all(promises);
+    const result = await Promise.allSettled(promises);
+    if (hasRejectedItems(result)) {
+      const rejected = rejectedItems(result);
+      showAlertDialog(this, {
+        title: this.hass.localize("ui.panel.config.common.multiselect.failed", {
+          number: rejected.length,
+        }),
+        text: html`<pre>
+${rejected
+            .map((r) => r.reason.message || r.reason.code || r.reason)
+            .join("\r\n")}</pre
+        >`,
+      });
+    }
   }
 
   private _handleSelectionChanged(
@@ -978,6 +1038,18 @@ export class HaConfigHelpers extends SubscribeMixin(LitElement) {
         return label;
       },
     });
+  }
+
+  private _handleSortingChanged(ev: CustomEvent) {
+    this._activeSorting = ev.detail;
+  }
+
+  private _handleGroupingChanged(ev: CustomEvent) {
+    this._activeGrouping = ev.detail.value;
+  }
+
+  private _handleCollapseChanged(ev: CustomEvent) {
+    this._activeCollapsed = ev.detail.value;
   }
 
   static get styles(): CSSResultGroup {

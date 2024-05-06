@@ -245,6 +245,14 @@ export class HuiTileCard extends LitElement implements LovelaceCard {
             ></ha-relative-time>
           `;
         }
+        if (content === "last_triggered") {
+          return html`
+            <ha-relative-time
+              .hass=${this.hass}
+              .datetime=${stateObj.attributes.last_triggered}
+            ></ha-relative-time>
+          `;
+        }
         if (stateObj.attributes[content] == null) {
           return undefined;
         }
@@ -518,13 +526,14 @@ export class HuiTileCard extends LitElement implements LovelaceCard {
         display: flex;
         flex-direction: row;
         align-items: center;
+        padding: 12px;
       }
       .vertical {
         flex-direction: column;
         text-align: center;
       }
       .vertical .icon-container {
-        margin-top: 12px;
+        margin-bottom: 12px;
         margin-right: 0;
         margin-inline-start: initial;
         margin-inline-end: initial;
@@ -536,8 +545,8 @@ export class HuiTileCard extends LitElement implements LovelaceCard {
         position: relative;
         flex: none;
         margin-right: 12px;
-        margin-inline-start: 12px;
-        margin-inline-end: initial;
+        margin-inline-start: initial;
+        margin-inline-end: 12px;
         direction: var(--direction);
         transition: transform 180ms ease-in-out;
       }
@@ -565,7 +574,6 @@ export class HuiTileCard extends LitElement implements LovelaceCard {
       }
       ha-tile-info {
         position: relative;
-        padding: 12px;
         flex: 1;
         min-width: 0;
         transition: background-color 180ms ease-in-out;

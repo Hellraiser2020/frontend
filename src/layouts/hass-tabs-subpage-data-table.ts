@@ -41,14 +41,6 @@ import type { HomeAssistant, Route } from "../types";
 import "./hass-tabs-subpage";
 import type { PageNavigation } from "./hass-tabs-subpage";
 
-declare global {
-  // for fire event
-  interface HASSDomEvents {
-    "search-changed": { value: string };
-    "clear-filter": undefined;
-  }
-}
-
 @customElement("hass-tabs-subpage-data-table")
 export class HaTabsSubpageDataTable extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
@@ -62,6 +54,8 @@ export class HaTabsSubpageDataTable extends LitElement {
   @property({ type: Boolean }) public supervisor = false;
 
   @property({ type: Boolean, attribute: "main-page" }) public mainPage = false;
+
+  @property({ attribute: false }) public initialCollapsedGroups: string[] = [];
 
   /**
    * Object with the columns.
@@ -166,7 +160,14 @@ export class HaTabsSubpageDataTable extends LitElement {
 
   @property({ type: Boolean }) public showFilters = false;
 
+  @property({ attribute: false }) public initialSorting?: {
+    column: string;
+    direction: SortingDirection;
+  };
+
   @property() public initialGroupColumn?: string;
+
+  @property({ attribute: false }) public groupOrder?: string[];
 
   @state() private _sortColumn?: string;
 
@@ -190,9 +191,16 @@ export class HaTabsSubpageDataTable extends LitElement {
     this._dataTable.clearSelection();
   }
 
-  protected firstUpdated() {
+  protected willUpdate() {
+    if (this.hasUpdated) {
+      return;
+    }
     if (this.initialGroupColumn) {
-      this._groupColumn = this.initialGroupColumn;
+      this._setGroupColumn(this.initialGroupColumn);
+    }
+    if (this.initialSorting) {
+      this._sortColumn = this.initialSorting.column;
+      this._sortDirection = this.initialSorting.direction;
     }
   }
 
@@ -418,6 +426,8 @@ export class HaTabsSubpageDataTable extends LitElement {
                 .sortColumn=${this._sortColumn}
                 .sortDirection=${this._sortDirection}
                 .groupColumn=${this._groupColumn}
+                .groupOrder=${this.groupOrder}
+                .initialCollapsedGroups=${this.initialCollapsedGroups}
               >
                 ${!this.narrow
                   ? html`
@@ -496,7 +506,6 @@ export class HaTabsSubpageDataTable extends LitElement {
       ${this.showFilters && !showPane
         ? html`<ha-dialog
             open
-            hideActions
             .heading=${localize("ui.components.subpage-data-table.filters")}
           >
             <ha-dialog-header slot="heading">
@@ -523,8 +532,17 @@ export class HaTabsSubpageDataTable extends LitElement {
                 : nothing}
             </ha-dialog-header>
             <div class="filter-dialog-content">
-              <slot name="filter-pane"></slot></div
-          ></ha-dialog>`
+              <slot name="filter-pane"></slot>
+            </div>
+            <div slot="primaryAction">
+              <ha-button @click=${this._toggleFilters}>
+                ${this.hass.localize(
+                  "ui.components.subpage-data-table.show_results",
+                  { number: this.data.length }
+                )}
+              </ha-button>
+            </div>
+          </ha-dialog>`
         : nothing}
     `;
   }
@@ -552,10 +570,20 @@ export class HaTabsSubpageDataTable extends LitElement {
       this._sortDirection = null;
     }
     this._sortColumn = this._sortDirection === null ? undefined : columnId;
+
+    fireEvent(this, "sorting-changed", {
+      column: columnId,
+      direction: this._sortDirection,
+    });
   }
 
   private _handleGroupBy(ev) {
-    this._groupColumn = ev.currentTarget.value;
+    this._setGroupColumn(ev.currentTarget.value);
+  }
+
+  private _setGroupColumn(columnId: string) {
+    this._groupColumn = columnId;
+    fireEvent(this, "grouping-changed", { value: columnId });
   }
 
   private _enableSelectMode() {
@@ -779,7 +807,6 @@ export class HaTabsSubpageDataTable extends LitElement {
       }
 
       ha-dialog {
-        --dialog-z-index: 100;
         --mdc-dialog-min-width: calc(
           100vw - env(safe-area-inset-right) - env(safe-area-inset-left)
         );
@@ -794,7 +821,7 @@ export class HaTabsSubpageDataTable extends LitElement {
       }
 
       .filter-dialog-content {
-        height: calc(100vh - 1px - var(--header-height));
+        height: calc(100vh - 1px - 61px - var(--header-height));
         display: flex;
         flex-direction: column;
       }
@@ -811,5 +838,12 @@ export class HaTabsSubpageDataTable extends LitElement {
 declare global {
   interface HTMLElementTagNameMap {
     "hass-tabs-subpage-data-table": HaTabsSubpageDataTable;
+  }
+
+  // for fire event
+  interface HASSDomEvents {
+    "search-changed": { value: string };
+    "grouping-changed": { value: string };
+    "clear-filter": undefined;
   }
 }
